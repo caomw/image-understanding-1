@@ -9,7 +9,7 @@ using namespace cv;
  My implentation of Non maximum suppression
  NOTE: bordSize must be odd number.
 */
-void nonMaxSuppression(Mat& R, int bordSize=3)
+void nonMaxSuppression(const Mat& srcRMatrix, Mat& dstRMatrix,  int bordSize=3)
 {
 	int size = int((bordSize-1) / 2);
 	Mat region(bordSize, bordSize, CV_8UC1);					//searching region for nonmax supression
@@ -21,32 +21,33 @@ void nonMaxSuppression(Mat& R, int bordSize=3)
 	Point minLoc;
 	Point maxLoc;
 
-	for (int i = 0; i < R.cols; i++)
+	for (int i = 0; i < srcRMatrix.cols; i++)
 	{
-		for (int j = 0; j < R.rows; j++)
+		for (int j = 0; j < srcRMatrix.rows; j++)
 		{
-			if ( (i-size) >= 0 && (i+size) < R.cols && (j-size) >= 0 && (j+size)< R.rows)
+			if ( (i-size) >= 0 && (i+size) < srcRMatrix.cols && (j-size) >= 0 && (j+size)< srcRMatrix.rows)
 			{
 				//NOTE: in Rect function, the last two paramter are width and height of matrix.
-				region = R(Rect(i-size, j-size, bordSize, bordSize));
+				region = srcRMatrix(Rect(i-size, j-size, bordSize, bordSize));
 				minMaxLoc(region, &minVal, &maxVal, &minLoc, &maxLoc);
 
-				Mat tmp = R(Rect(i-size, j-size, bordSize, bordSize));
+				Mat tmp = dstRMatrix(Rect(i-size, j-size, bordSize, bordSize));
 				zeroPad.copyTo(tmp);
 
 				Point pos = Point(i+maxLoc.x-size, j+maxLoc.y-size);
-				R.at<uchar>(pos) = (uchar)maxVal;
+				dstRMatrix.at<uchar>(pos) = (uchar)maxVal;
 			}
 		}
 	}
 }
 
-void harrisDetector(string imagePath, int thresholdOfR)
+//My implementation of Harris Detection:http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.434.4816&rep=rep1&type=pdf
+map<int, map<int, float>> harrisDetector(string imagePath, int windowsSize,int sizeOfNMS, int thresholdOfR)
 {
 	Mat srcGray = imread(imagePath, IMREAD_GRAYSCALE);
-	Mat srcRGB = imread(imagePath, IMREAD_COLOR);
 
 	Mat gradientOperator = (Mat_ <int>(3,1) << -1, 0, 1);
+	//Mat gradientOperator = (Mat_ <int>(5,1) << -2, -1, 0, 1, 2); //this is what parameter that said in slides, but the result is terrible
 	Mat gradientOperatorTranspose;
 	transpose(gradientOperator, gradientOperatorTranspose);
 
@@ -57,9 +58,16 @@ void harrisDetector(string imagePath, int thresholdOfR)
 	Mat IxIy;
 	Mat IyIy;
 
-	Mat A;		//parameter in Matrix M
-	Mat B;		//
-	Mat C;		
+
+	Mat A;		//    (A C)
+	Mat B;		//M=  (C B)	
+	Mat C;		//
+
+	//Blur first to remove the impression of noise
+	GaussianBlur(srcGray, srcGray, Size(3,3), 0);
+
+//	Sobel(srcGray, Ix, -1,  1, 0, 3); //don't know why sobel opertors don't work
+//	Sobel(srcGray, Iy, -1,  0, 1, 3);
 
 	filter2D(srcGray, Ix, -1, gradientOperator);
 	filter2D(srcGray, Iy, -1, gradientOperatorTranspose);
@@ -70,9 +78,9 @@ void harrisDetector(string imagePath, int thresholdOfR)
 
 	Size kSize = Size(3,3);
 	//NOTE: in these function ,the paramter should be changed to find better detectors
-	GaussianBlur(IxIx, A, kSize, 3);
-	GaussianBlur(IxIy, B, kSize, 3);
-	GaussianBlur(IyIy, C, kSize, 3);
+	GaussianBlur(IxIx, A, kSize, 0);
+	GaussianBlur(IxIy, B, kSize, 0);
+	GaussianBlur(IyIy, C, kSize, 0);
 
 	//Use formula to calculate response matrix.
 	Mat trace = A + B;
@@ -81,7 +89,7 @@ void harrisDetector(string imagePath, int thresholdOfR)
 	Mat ROrigin = det - k * trace;
 
 	Mat RThreshold = ROrigin.clone();
-	Mat RSuupress = ROrigin.clone();
+	Mat RSupress = ROrigin.clone();
 
 	//Find points with large corner response
 	for (int i = 0;i < RThreshold.rows; i++)
@@ -91,43 +99,80 @@ void harrisDetector(string imagePath, int thresholdOfR)
 			 uchar c = RThreshold.at<uchar>(i, j);
 			 if (c > 0 && c < thresholdOfR)
 			 {
-
 				RThreshold.at<uchar>(i, j) = '\0';
 			 }
 		}
 	}
 
 	//Do non maximum supression
-	nonMaxSuppression(RSuupress, 17);
+	nonMaxSuppression(RThreshold, RSupress, sizeOfNMS);
+
+	//Write out result. Use a 3 dimensional map to store the position and response value.
+	map<int, map<int, float> > HarrisCorners;
+	for (int i = 0; i < RSupress.rows; ++i)
+	{
+		for (int j = 0; j < RSupress.cols; ++j)
+		{
+			if (RSupress.at<uchar>(i, j) != '\0')
+			{
+				HarrisCorners[i][j] = RSupress.at<uchar>(i, j);
+			}
+		}
+	}
+
+	return HarrisCorners;
+}
+
+void displayResult(Mat& srcRGB, map<int, map<int, float>>  harrisCorners, int windowSize)
+{
 	//Add Harris detect result to RGB image
 	Mat channels[3];
-	split(srcRGB, channels);	//Split RGB image matrix to 3 channels, in the order of GBR.
-	channels[2] += RSuupress;	//Only add red channel image to original image.
+	split(srcRGB, channels);	//Split RGB image matrix to 3 channels, in the order of GBR. then change the red channel to label harris corner
+
+	//It's too ugly and runs slowly here! 
+	for (int i = 0; i < srcRGB.rows; ++i)
+	{
+		for (int j = 0; j < srcRGB.cols; ++j)
+		{
+			if (harrisCorners[i][j] != 0.0f && i-1 > 0 && i+1 < srcRGB.rows && j-1> 0 && j+1 < srcRGB.cols)
+			{
+				for (int m = -1; m < 2; ++m)
+				{
+					for (int n = -1; n < 2; ++n)
+					{
+						//NOTE: here we must use type larger than uchar, otherwise the result will mod 256 automatically,
+						//since the largest number of uchar is 255
+						int adaptedValue = channels[0].at<uchar>(i+m, j+n) + harrisCorners[i][j];
+						if (adaptedValue > 255)	// if larger than 255, we must let it be 255, otherwise the pixel will change to blue
+						{
+							channels[2].at<uchar>(i+m, j+n) = 255;
+						}
+						else
+						{
+							channels[2].at<uchar>(i+m, j+n) = adaptedValue;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	merge(channels, 3, srcRGB);
 
-
-	string strROrigin = " Original R Matrix";
-	string strRThreshold = "R Matrix After threshold choose";
-	string strRSupress = " R Matrix After non max Supression";
 	string strResult= "Result of Harris Detector";
-
-	namedWindow(strROrigin, CV_WINDOW_AUTOSIZE);
-	namedWindow(strRThreshold, CV_WINDOW_AUTOSIZE);
-	namedWindow(strRSupress, CV_WINDOW_AUTOSIZE);
 	namedWindow(strResult, CV_WINDOW_AUTOSIZE);
-
-	imshow(strROrigin, ROrigin);
-	imshow(strRThreshold, RThreshold);
-	imshow(strRSupress, RSuupress);
 	imshow(strResult, srcRGB);
 
 	waitKey(0);
 }
 
-
 int main()
 {
-	//string imagePath = "logo.jpg";
-	string imagePath = "animal.jpg";
-	harrisDetector(imagePath, 230);
+	string imagePath = "logo.jpg";
+//	string imagePath = "animal.jpg";
+	map<int, map<int, float>> harrisCorners = harrisDetector(imagePath, 15, 17, 240);
+	Mat srcRGB = imread(imagePath, IMREAD_COLOR);
+	//Mat srcRGB = imread(imagePath, IMREAD_GRAYSCALE);
+	displayResult(srcRGB,  harrisCorners, 3);
+
 }
