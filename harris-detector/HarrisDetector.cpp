@@ -2,6 +2,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp> 
+#include <ctime>
 using namespace std;
 using namespace cv;
 
@@ -166,13 +167,72 @@ void displayResult(Mat& srcRGB, map<int, map<int, float>>  harrisCorners, int wi
 	waitKey(0);
 }
 
+void displayReusltOpenCV(Mat srcGray)
+{
+	clock_t tStart = clock();
+	Mat opencvHarris;
+	cornerHarris(srcGray, opencvHarris, 3, 3, 0.06);
+	normalize( opencvHarris, opencvHarris, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
+	convertScaleAbs( opencvHarris, opencvHarris);
+	  /// Drawing a circle around corners
+	for( int j = 0; j < opencvHarris.rows ; j++ )
+     { for( int i = 0; i < opencvHarris.cols; i++ )
+          {
+            if( (int) opencvHarris.at<uchar>(j,i) > 200 )
+              {
+               circle( opencvHarris, Point( i, j ), 5,  Scalar(0), 2, 8, 0 );
+              }
+          }
+     }
+	cout << "opencv time taken: " << (clock() - tStart) << "ms" << endl;
+
+	string opencvHarrisName = "result of harriscorner function in opencv";
+	namedWindow(opencvHarrisName, CV_WINDOW_AUTOSIZE);
+	//imshow(opencvHarrisName, opencvHarris);
+	imshow(opencvHarrisName, opencvHarris);
+
+	waitKey(0);
+}
+
+//draw 8x8square around corner
+void matchDisplay(Mat& srcRGB, map<int, map<int, float>> harrisCorners, int patchSize)
+{
+	int bordSize = patchSize / 2;
+
+	for (int i = 0; i < srcRGB.rows; ++i)
+	{
+		for (int j = 0; j < srcRGB.cols; ++j)
+		{
+			if (harrisCorners[i][j] > 0)
+			{
+				if (i - bordSize > 0 && i+bordSize < srcRGB.rows && j-bordSize>0 && j+bordSize < srcRGB.cols)
+				{
+					rectangle(srcRGB, Point(i-bordSize, j-bordSize), Point(i+bordSize, j+bordSize), Scalar(255,255,255));
+
+				}
+			}
+		}
+	}
+
+	imshow("8x8 patch", srcRGB);
+	waitKey(0);
+}
+
 int main()
 {
-	string imagePath = "logo.jpg";
-//	string imagePath = "animal.jpg";
-	map<int, map<int, float>> harrisCorners = harrisDetector(imagePath, 15, 17, 240);
+	//string imagePath = "logo.jpg";
+	//string imagePath = "animal.jpg";
+	string imagePath = "building.jpg";
+
 	Mat srcRGB = imread(imagePath, IMREAD_COLOR);
-	//Mat srcRGB = imread(imagePath, IMREAD_GRAYSCALE);
+	Mat srcGray = imread(imagePath, IMREAD_GRAYSCALE);
+
+	clock_t tStart1 = clock();
+	// My implementation of harris detector
+	map<int, map<int, float>> harrisCorners = harrisDetector(imagePath, 15, 17, 200);
+	cout << "My implementation's Time taken: " << (clock() - tStart1)<< "ms" << endl;
 	displayResult(srcRGB,  harrisCorners, 3);
 
+	//OpenCV implementation
+	//displayReusltOpenCV(srcGray);
 }
