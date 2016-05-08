@@ -1,3 +1,0 @@
-
-
-Panorama blendPairs pairlist18_2.txt stitch18_2.tga 200
