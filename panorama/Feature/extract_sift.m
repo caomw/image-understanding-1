@@ -1,4 +1,4 @@
-datasetRootPath = 'D:\yunfeng\Documents\Visual Studio 2012\Projects\iamge-understanding\Panorama\pano1';
+datasetRootPath = 'D:\yunfeng\Documents\Visual Studio 2012\Projects\iamge-understanding\Panorama\Panorama\pano1';
 imageIdRange = 8:25;
 imageIdCell = num2cell(imageIdRange);
 
